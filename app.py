@@ -327,7 +327,7 @@ def get_cached_df_excel(df: pd.DataFrame, cache_token: str) -> bytes:
 
 # ---------------- APPLICATION HEADER ----------------
 
-st.title("Sales Data Analysis System")
+st.title("📊 Sales Data Analysis System")
 st.caption("A reliable retail sales data processing, cleaning, and analytics platform.")
 st.divider()
 
@@ -407,14 +407,12 @@ elif active_mode == "sample" and has_sample:
                     del st.session_state[k]
             st.rerun()
 else:
-    # No dataset active: display professional, compact welcome card on main page with one clear instruction
+    # No dataset active: display professional, compact welcome card on main page with concise instruction
     st.markdown(
         """
-        <div style="background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 10px; padding: 24px; box-shadow: 0 1px 3px 0 rgba(0,0,0,0.04); text-align: center; margin-top: 0.5rem;">
-            <div style="font-size: 2rem; margin-bottom: 6px;">📊</div>
-            <h3 style="color: #0F172A; margin-bottom: 6px; font-weight: 700;">Welcome to Sales Data Analysis System</h3>
-            <p style="color: #475569; font-size: 0.95rem; max-width: 620px; margin: 0 auto;">
-                To get started, upload a retail sales dataset (.csv or .xlsx) in the sidebar or click <strong>Load Built-in Sample Dataset</strong>.
+        <div style="background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 10px; padding: 22px 24px; box-shadow: 0 1px 3px 0 rgba(0,0,0,0.04); text-align: center; margin-top: 0.5rem;">
+            <p style="color: #475569; font-size: 1rem; max-width: 620px; margin: 0 auto; font-weight: 500;">
+                Upload a retail sales dataset (CSV or Excel) using the sidebar to begin your analysis.
             </p>
         </div>
         """,

@@ -48,6 +48,19 @@ def test_welcome_screen_single_sample_button():
     # Confirm file uploader exists in sidebar
     assert len(at.sidebar.file_uploader) == 1
 
+    # Confirm exactly ONE title exists with 📊 icon
+    titles = [t.value for t in at.title]
+    assert len(titles) == 1
+    assert titles[0] == "📊 Sales Data Analysis System"
+
+    # Confirm simplified welcome card content exists
+    welcome_cards = [m.value for m in at.markdown if "Upload a retail sales dataset" in m.value]
+    assert len(welcome_cards) == 1
+    assert "Upload a retail sales dataset (CSV or Excel) using the sidebar to begin your analysis." in welcome_cards[0]
+
+    # Confirm no duplicate welcome heading exists
+    assert not any("Welcome to Sales Data Analysis System" in m.value for m in at.markdown)
+
 
 def test_load_sample_data_transitions_to_dashboard():
     """Verify clicking the single sidebar sample button cleanly displays the dashboard."""
@@ -65,9 +78,9 @@ def test_load_sample_data_transitions_to_dashboard():
     assert any("Executive Dashboard" in l for l in tab_labels), "Expected Executive Dashboard tab to be present"
     assert any("Export & Downloads" in l for l in tab_labels), "Expected Export & Downloads tab to be present"
 
-    # Welcome card must disappear once data is active
-    welcome_headers = [h for h in at.markdown if "Welcome to Sales Data Analysis System" in h.value]
-    assert len(welcome_headers) == 0, "Welcome card must not be rendered when data is active"
+    # Welcome card instruction must disappear once data is active
+    welcome_cards = [m.value for m in at.markdown if "Upload a retail sales dataset" in m.value]
+    assert len(welcome_cards) == 0, "Welcome card must not be rendered when data is active"
 
 
 def test_excel_row_limit_enforcement():
