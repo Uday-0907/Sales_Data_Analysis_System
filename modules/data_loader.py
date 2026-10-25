@@ -2,6 +2,7 @@
 Data Loader Module for Sales Data Analysis System.
 Provides robust loading of CSV and Excel (.xlsx) files with encoding fallbacks,
 delimiter auto-detection, empty file validation, and multiple sheet support.
+High-performance C-engine parsing optimized for large datasets.
 """
 
 import io
@@ -34,6 +35,7 @@ def load_csv_file(
 ) -> Tuple[Optional[pd.DataFrame], bool, str, str, str]:
     """
     Robustly loads a CSV file with automatic encoding fallback and delimiter detection.
+    Uses high-speed C engine by default for instant parsing of millions of records.
     
     Returns:
       (df, success, error_message, encoding_used, delimiter_used)
@@ -65,14 +67,15 @@ def load_csv_file(
     last_error = ""
 
     for enc in encodings_to_try:
+        # Sniff delimiter on sample header bytes rather than decoding entire large buffer
+        sample_bytes = raw_bytes[:8192]
         try:
-            text = raw_bytes.decode(enc)
+            sample_text = sample_bytes.decode(enc)
         except (UnicodeDecodeError, LookupError) as e:
             last_error = f"Encoding {enc} failed: {e}"
             continue
 
-        # Check if text has content
-        stripped_lines = [line.strip() for line in text.splitlines() if line.strip()]
+        stripped_lines = [line.strip() for line in sample_text.splitlines() if line.strip()]
         if not stripped_lines:
             return None, False, "The file text is empty or contains only whitespace.", enc, ""
 
@@ -81,43 +84,42 @@ def load_csv_file(
         if delimiter_override:
             chosen_delim = delimiter_override
         else:
-            # Sniff delimiter on sample header lines
-            sample_text = "\n".join(stripped_lines[:5])
+            sample_for_sniff = "\n".join(stripped_lines[:5])
             try:
                 sniffer = csv.Sniffer()
-                sniffed = sniffer.sniff(sample_text, delimiters=",;\t|")
+                sniffed = sniffer.sniff(sample_for_sniff, delimiters=",;\t|")
                 chosen_delim = sniffed.delimiter
             except Exception:
-                # Fallback: check which delimiter produces the most columns on header line
                 first_line = stripped_lines[0]
                 counts = {d: first_line.count(d) for d in delimiters_to_try}
                 chosen_delim = max(counts, key=counts.get)
                 if counts[chosen_delim] == 0:
                     chosen_delim = ","
 
+        # Fast C-engine parsing directly from byte stream
         try:
             df = pd.read_csv(
-                io.StringIO(text),
+                io.BytesIO(raw_bytes),
                 sep=chosen_delim,
-                engine="python",
+                encoding=enc,
+                engine="c",
                 on_bad_lines="warn"
             )
 
-            # Validate resulting DataFrame
             if df.empty:
                 return None, False, "The CSV file was parsed but contains 0 data rows.", enc, chosen_delim
 
             # Ensure we didn't end up with an unparsed single column containing delimiter characters
             if len(df.columns) == 1 and chosen_delim == ",":
                 col_name = str(df.columns[0])
-                if ";" in col_name or "\t" in col_name:
-                    # Retry with semicolon
+                if ";" in col_name or "\t" in col_name or "|" in col_name:
                     for alt_delim in [";", "\t", "|"]:
                         try:
                             alt_df = pd.read_csv(
-                                io.StringIO(text),
+                                io.BytesIO(raw_bytes),
                                 sep=alt_delim,
-                                engine="python"
+                                encoding=enc,
+                                engine="c"
                             )
                             if len(alt_df.columns) > 1:
                                 df = alt_df
@@ -131,9 +133,24 @@ def load_csv_file(
             best_delimiter = chosen_delim
             break
 
-        except Exception as parse_err:
-            last_error = f"CSV parsing error using encoding {enc} and delimiter '{chosen_delim}': {str(parse_err)}"
-            continue
+        except Exception as c_err:
+            # Fallback to python engine only if C engine encounters unusual format
+            try:
+                text = raw_bytes.decode(enc)
+                df = pd.read_csv(
+                    io.StringIO(text),
+                    sep=chosen_delim,
+                    engine="python",
+                    on_bad_lines="warn"
+                )
+                if not df.empty:
+                    best_df = df
+                    best_encoding = enc
+                    best_delimiter = chosen_delim
+                    break
+            except Exception as py_err:
+                last_error = f"Parsing error with {enc} and '{chosen_delim}': {py_err}"
+                continue
 
     if best_df is not None:
         return best_df, True, "", best_encoding, best_delimiter
@@ -168,7 +185,6 @@ def load_excel_file(
         if df is None or df.empty:
             return None, False, f"Worksheet '{target_sheet}' is empty. Please choose a worksheet containing sales data."
 
-        # Check if all rows or columns are unnamed/null
         if df.columns.astype(str).str.contains("^Unnamed").all() and df.dropna(how="all").empty:
             return None, False, f"Worksheet '{target_sheet}' contains no recognizable header or data rows."
 
@@ -191,25 +207,16 @@ def load_dataset(
     if uploaded_file is None:
         return None, False, "No file uploaded.", {}
 
-    filename = getattr(uploaded_file, "name", "dataset.csv").lower()
+    filename = getattr(uploaded_file, "name", str(uploaded_file)).lower()
     meta = {
         "filename": filename,
-        "format": "csv" if filename.endswith(".csv") else "excel",
+        "format": "csv" if (filename.endswith(".csv") or not filename.endswith((".xlsx", ".xls"))) else "excel",
         "sheet_names": [],
         "encoding": "N/A",
         "delimiter": "N/A"
     }
 
-    if filename.endswith(".csv"):
-        df, success, err, enc, delim = load_csv_file(uploaded_file)
-        meta["encoding"] = enc
-        meta["delimiter"] = delim
-        if not success:
-            return None, False, err, meta
-        return df, True, f"CSV loaded successfully (Encoding: {enc}, Delimiter: '{delim}').", meta
-
-    elif filename.endswith(".xlsx") or filename.endswith(".xls"):
-        # Check sheet names first
+    if filename.endswith(".xlsx") or filename.endswith(".xls"):
         s_ok, sheets, s_err = get_excel_sheet_names(uploaded_file)
         if not s_ok:
             return None, False, s_err, meta
@@ -225,4 +232,10 @@ def load_dataset(
         return df, True, f"Excel worksheet '{chosen_sheet}' loaded successfully.", meta
 
     else:
-        return None, False, f"Unsupported file extension for '{filename}'. Only .csv and .xlsx files are supported.", meta
+        # Default to CSV loader
+        df, success, err, enc, delim = load_csv_file(uploaded_file)
+        meta["encoding"] = enc
+        meta["delimiter"] = delim
+        if not success:
+            return None, False, err, meta
+        return df, True, f"CSV loaded successfully (Encoding: {enc}, Delimiter: '{delim}').", meta

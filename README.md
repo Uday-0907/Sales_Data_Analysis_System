@@ -58,8 +58,9 @@ A professional, reliable Python and Streamlit web application designed for retai
    - Download Descriptive Statistics (CSV).
 
 10. **Clean Matplotlib Visualizations**
-    - High-quality dark-themed charts matching the interface.
-    - Zero Plotly dependencies; memory-safe figure management.
+    - High-quality professional light-themed charts matching the executive interface.
+    - Crisp slate typography, slate axes, subtle gridlines, and vivid business palettes.
+    - Zero external UI dependencies; memory-safe figure management.
 
 ---
 
@@ -171,11 +172,15 @@ Streamlit will launch the web application in your default browser at `http://loc
 
 ## Running the Automated Test Suite
 
-To run the automated verification suite covering all 14 test cases:
+To run the complete automated verification and performance suite covering all 20 test cases:
 ```powershell
-python -m pytest tests/test_system.py -v
+python -m pytest tests/ -v
 ```
-or run directly via Python:
+or run individual test modules:
 ```powershell
-python tests/test_system.py
+# Core functionality test suite (14 tests)
+python -m pytest tests/test_system.py -v
+
+# Export performance and large dataset suite (6 tests)
+python -m pytest tests/test_performance_and_exports.py -v
 ```

@@ -1,10 +1,12 @@
 """
 Sales Data Analysis System
 A comprehensive, reliable Streamlit web application designed for retail sales data analysis.
-Compliant with Academic Level-1 requirements.
+Compliant with Academic Level-1 requirements. Features high-performance caching and light UI.
 """
 
 import os
+import io
+from typing import Dict, Optional, Any
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -29,7 +31,12 @@ from modules.visualizations import (
     create_histogram
 )
 from utils.validation import validate_profit_formula, check_analysis_capabilities
-from utils.export import dataframe_to_csv_bytes, generate_quality_report_csv
+from utils.export import (
+    dataframe_to_csv_bytes,
+    generate_quality_report_csv,
+    can_export_to_excel,
+    dataframe_to_excel_bytes
+)
 
 
 # ---------------- PAGE CONFIGURATION ----------------
@@ -37,42 +44,51 @@ from utils.export import dataframe_to_csv_bytes, generate_quality_report_csv
 st.set_page_config(
     page_title="Sales Data Analysis System",
     page_icon="📈",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-# ---------------- MODERN PROFESSIONAL LIGHT THEME STYLING ----------------
+# ---------------- HIGH-CONTRAST PROFESSIONAL LIGHT THEME CSS ----------------
 
 st.markdown("""
 <style>
-/* Global Application Background & Typography */
-.stApp {
+/* Global Application Canvas */
+.stApp, [data-testid="stApp"] {
     background-color: #F5F7FB !important;
     color: #1E293B !important;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
-/* Eliminate contrasting top white bar and blend header seamlessly into page */
-header[data-testid="stHeader"] {
-    background-color: transparent !important;
+/* Eliminate top white header strip & decoration line completely */
+header[data-testid="stHeader"], [data-testid="stHeader"] {
     background: transparent !important;
+    background-color: transparent !important;
+    color: #1E293B !important;
 }
 
-/* Remove excessive 5-6rem top padding above title while maintaining comfortable spacing */
-.main .block-container {
-    padding-top: 1.5rem !important;
+[data-testid="stDecoration"] {
+    display: none !important;
+}
+
+/* Eliminate excessive default top padding (6rem) in Streamlit 1.60 */
+[data-testid="stMainBlockContainer"],
+.stMainBlockContainer,
+.main .block-container,
+.block-container {
+    padding-top: 1.25rem !important;
     padding-bottom: 2.5rem !important;
     padding-left: 2.25rem !important;
     padding-right: 2.25rem !important;
     max-width: 100% !important;
 }
 
-/* Sidebar Styling: Clean white background with crisp border and dark text */
+/* Sidebar Styling: Pure white card background with subtle border and crisp text */
 [data-testid="stSidebar"] {
     background-color: #FFFFFF !important;
     border-right: 1px solid #E2E8F0 !important;
 }
 [data-testid="stSidebar"] .block-container {
-    padding-top: 1.5rem !important;
+    padding-top: 1.25rem !important;
     padding-bottom: 2.5rem !important;
     padding-left: 1.25rem !important;
     padding-right: 1.25rem !important;
@@ -81,16 +97,19 @@ header[data-testid="stHeader"] {
 [data-testid="stSidebar"] h2, 
 [data-testid="stSidebar"] h3 {
     color: #0F172A !important;
-    font-weight: 600 !important;
+    font-weight: 700 !important;
+    letter-spacing: -0.015em !important;
 }
 [data-testid="stSidebar"] p,
 [data-testid="stSidebar"] label,
 [data-testid="stSidebar"] span {
     color: #1E293B !important;
+    font-weight: 500 !important;
 }
 [data-testid="stSidebar"] .stCaption,
 [data-testid="stSidebar"] small {
-    color: #64748B !important;
+    color: #475569 !important;
+    font-weight: 500 !important;
 }
 
 /* Sidebar File Uploader Container */
@@ -104,11 +123,11 @@ header[data-testid="stHeader"] {
     border-color: #2563EB !important;
 }
 
-/* Dashboard Metric Cards: White background, subtle border, gentle elevation */
+/* Dashboard Metric Cards: White surface, crisp border, distinct values */
 [data-testid="stMetric"] {
     background-color: #FFFFFF !important;
     border: 1px solid #E2E8F0 !important;
-    padding: 18px 20px !important;
+    padding: 16px 18px !important;
     border-radius: 12px !important;
     box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05) !important;
     transition: transform 0.15s ease, box-shadow 0.15s ease !important;
@@ -118,18 +137,18 @@ header[data-testid="stHeader"] {
     border-color: #CBD5E1 !important;
 }
 [data-testid="stMetricLabel"] {
-    color: #64748B !important;
-    font-size: 0.825rem !important;
+    color: #475569 !important;
+    font-size: 0.8rem !important;
     font-weight: 600 !important;
     text-transform: uppercase !important;
-    letter-spacing: 0.03em !important;
+    letter-spacing: 0.035em !important;
 }
 [data-testid="stMetricLabel"] * {
-    color: #64748B !important;
+    color: #475569 !important;
 }
 [data-testid="stMetricValue"] {
     color: #0F172A !important;
-    font-size: 1.8rem !important;
+    font-size: 1.75rem !important;
     font-weight: 700 !important;
     letter-spacing: -0.02em !important;
 }
@@ -145,8 +164,8 @@ h1 {
     margin-bottom: 0.2rem !important;
 }
 h2 {
-    color: #1E293B !important;
-    font-weight: 600 !important;
+    color: #0F172A !important;
+    font-weight: 700 !important;
     letter-spacing: -0.02em !important;
     margin-top: 0.5rem !important;
 }
@@ -166,22 +185,22 @@ hr {
     margin-bottom: 1.25rem !important;
 }
 [data-testid="stTabs"] button[role="tab"] {
-    color: #64748B !important;
+    color: #334155 !important;
     font-size: 0.95rem !important;
-    font-weight: 500 !important;
+    font-weight: 600 !important;
     padding: 10px 18px !important;
     background-color: transparent !important;
     border: none !important;
-    border-bottom: 2.5px solid transparent !important;
+    border-bottom: 3px solid transparent !important;
     transition: all 0.15s ease !important;
 }
 [data-testid="stTabs"] button[role="tab"]:hover {
-    color: #1E293B !important;
+    color: #0F172A !important;
 }
 [data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
     color: #2563EB !important;
-    font-weight: 600 !important;
-    border-bottom: 2.5px solid #2563EB !important;
+    font-weight: 700 !important;
+    border-bottom: 3px solid #2563EB !important;
 }
 [data-testid="stTabs"] [data-baseweb="tab-highlight"] {
     background-color: #2563EB !important;
@@ -190,7 +209,7 @@ hr {
     background-color: #E2E8F0 !important;
 }
 
-/* Dataframe and Tables */
+/* Dataframe & Tables */
 [data-testid="stDataFrame"] {
     background-color: #FFFFFF !important;
     border: 1px solid #E2E8F0 !important;
@@ -219,7 +238,7 @@ hr {
     color: #FFFFFF !important;
     border: 1px solid #2563EB !important;
     border-radius: 8px !important;
-    font-weight: 500 !important;
+    font-weight: 600 !important;
     padding: 0.5rem 1rem !important;
     box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05) !important;
     transition: all 0.15s ease-in-out !important;
@@ -234,7 +253,7 @@ hr {
     color: #FFFFFF !important;
     border: 1px solid #2563EB !important;
     border-radius: 8px !important;
-    font-weight: 500 !important;
+    font-weight: 600 !important;
     width: 100% !important;
     padding: 0.5rem 1rem !important;
     box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05) !important;
@@ -269,6 +288,43 @@ hr {
 """, unsafe_allow_html=True)
 
 
+# ---------------- CACHED FILE LOADING, CLEANING & SERIALIZATION ----------------
+
+@st.cache_data(show_spinner=False)
+def get_cached_dataset(file_bytes: bytes, filename: str, sheet_name: Optional[str] = None):
+    """
+    Caches raw file loading so large files (e.g. 3M rows) are not re-read from disk on widget interactions.
+    """
+    buf = io.BytesIO(file_bytes)
+    buf.name = filename
+    return load_dataset(buf, sheet_name=sheet_name)
+
+
+@st.cache_data(show_spinner=False)
+def get_cached_cleaned_data(raw_df: pd.DataFrame, mapped_cols: Dict[str, Optional[str]], options: Dict[str, Any]):
+    """
+    Caches data cleaning so expensive operations are not repeated on every rerun.
+    """
+    return clean_dataset(raw_df, mapped_cols, options)
+
+
+@st.cache_data(show_spinner=False, max_entries=2, hash_funcs={pd.DataFrame: lambda _: 0})
+def get_cached_df_csv(df: pd.DataFrame, cache_token: str) -> bytes:
+    """
+    Serializes a DataFrame to CSV bytes with memory-bounded caching.
+    Uses chunked binary streaming to minimize memory allocation and execution time.
+    """
+    return dataframe_to_csv_bytes(df)
+
+
+@st.cache_data(show_spinner=False, max_entries=2, hash_funcs={pd.DataFrame: lambda _: 0})
+def get_cached_df_excel(df: pd.DataFrame, cache_token: str) -> bytes:
+    """
+    Serializes a DataFrame to Excel (.xlsx) bytes with row limit enforcement.
+    """
+    return dataframe_to_excel_bytes(df)
+
+
 # ---------------- APPLICATION HEADER ----------------
 
 st.title("Sales Data Analysis System")
@@ -276,53 +332,109 @@ st.caption("A reliable retail sales data processing, cleaning, and analytics pla
 st.divider()
 
 
-# ---------------- SIDEBAR: DATA UPLOAD ----------------
+# ---------------- DATASET SELECTION & SESSION STATE ----------------
 
-st.sidebar.header("📁 Data Upload")
+SAMPLE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "sales_data.csv")
+has_sample = os.path.exists(SAMPLE_PATH)
+
+if "dataset_mode" not in st.session_state:
+    st.session_state["dataset_mode"] = "none"  # "none", "upload", "sample"
+
+# Sidebar Data Source
+st.sidebar.header("📁 Data Source")
 
 uploaded_file = st.sidebar.file_uploader(
     "Upload Retail Sales File",
     type=["csv", "xlsx", "xls"],
-    help="Upload your retail sales data in CSV or Excel (.xlsx) format."
+    help="Upload your retail sales data in CSV or Excel (.xlsx) format.",
+    key="file_uploader_widget"
 )
 
-# Support loading sample file if present in workspace or desktop
-SAMPLE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "sales_data.csv")
-has_sample = os.path.exists(SAMPLE_PATH)
+# Handle file upload state changes predictably
+uploaded_file_id = f"upload_{uploaded_file.name}_{uploaded_file.size}" if uploaded_file is not None else None
+last_uploaded_id = st.session_state.get("_last_uploaded_id")
 
-use_sample = False
-if uploaded_file is None:
-    if has_sample:
-        st.info("👈 Upload your retail sales CSV or Excel file from the sidebar to begin, or load the built-in sample dataset below.")
-        if st.button("Load Built-in Sample Dataset (sales_data.csv)"):
-            st.session_state["load_sample"] = True
-            st.rerun()
-
-    if st.session_state.get("load_sample", False) and has_sample:
-        use_sample = True
-        active_file_source = SAMPLE_PATH
-    else:
-        st.stop()
+if uploaded_file is not None:
+    # A new file was uploaded or file was replaced
+    if uploaded_file_id != last_uploaded_id:
+        st.session_state["_last_uploaded_id"] = uploaded_file_id
+        st.session_state["dataset_mode"] = "upload"
+        st.session_state["active_dataset_id"] = uploaded_file_id
+        for k in list(st.session_state.keys()):
+            if k.startswith("col_map_") or k.startswith("filter_"):
+                del st.session_state[k]
 else:
-    st.session_state["load_sample"] = False
-    active_file_source = uploaded_file
+    # File was removed from uploader
+    if last_uploaded_id is not None:
+        st.session_state["_last_uploaded_id"] = None
+        if st.session_state.get("dataset_mode") == "upload":
+            st.session_state["dataset_mode"] = "none"
+            st.session_state["active_dataset_id"] = None
+
+# Single clearly-labeled sample dataset button in sidebar
+if has_sample:
+    st.sidebar.write("")
+    btn_sample_label = "📊 Load Built-in Sample Dataset"
+    if st.sidebar.button(btn_sample_label, use_container_width=True, key="btn_sample_sidebar"):
+        st.session_state["dataset_mode"] = "sample"
+        st.session_state["active_dataset_id"] = "sample_builtin_dataset"
+        for k in list(st.session_state.keys()):
+            if k.startswith("col_map_") or k.startswith("filter_"):
+                del st.session_state[k]
+        st.rerun()
+
+# Determine active dataset source and bytes
+active_mode = st.session_state.get("dataset_mode", "none")
+file_bytes = None
+active_filename = ""
+
+if active_mode == "upload" and uploaded_file is not None:
+    file_bytes = uploaded_file.getvalue()
+    active_filename = uploaded_file.name
+    st.sidebar.success(f"🟢 Active: **Uploaded ({active_filename})**")
+elif active_mode == "sample" and has_sample:
+    with open(SAMPLE_PATH, "rb") as f:
+        file_bytes = f.read()
+    active_filename = "sales_data.csv"
+    st.sidebar.info("🔵 Active: **Built-in Sample (sales_data.csv)**")
+    # If the user also has a file in the uploader widget, provide explicit switch back
+    if uploaded_file is not None:
+        if st.sidebar.button(f"📁 Switch to Uploaded File ({uploaded_file.name})", key="btn_switch_to_uploaded", use_container_width=True):
+            st.session_state["dataset_mode"] = "upload"
+            st.session_state["active_dataset_id"] = uploaded_file_id
+            for k in list(st.session_state.keys()):
+                if k.startswith("col_map_") or k.startswith("filter_"):
+                    del st.session_state[k]
+            st.rerun()
+else:
+    # No dataset active: display professional, compact welcome card on main page with one clear instruction
+    st.markdown(
+        """
+        <div style="background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 10px; padding: 24px; box-shadow: 0 1px 3px 0 rgba(0,0,0,0.04); text-align: center; margin-top: 0.5rem;">
+            <div style="font-size: 2rem; margin-bottom: 6px;">📊</div>
+            <h3 style="color: #0F172A; margin-bottom: 6px; font-weight: 700;">Welcome to Sales Data Analysis System</h3>
+            <p style="color: #475569; font-size: 0.95rem; max-width: 620px; margin: 0 auto;">
+                To get started, upload a retail sales dataset (.csv or .xlsx) in the sidebar or click <strong>Load Built-in Sample Dataset</strong>.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    st.stop()
 
 
 # ---------------- FILE LOADING & SHEET SELECTION ----------------
 
 # Check sheet selection if Excel
-sheet_names = []
 selected_sheet = None
-filename = getattr(active_file_source, "name", str(active_file_source)).lower()
-
-if filename.endswith(".xlsx") or filename.endswith(".xls"):
-    s_ok, sheets, _ = get_excel_sheet_names(active_file_source)
+if active_filename.lower().endswith((".xlsx", ".xls")):
+    s_ok, sheets, _ = get_excel_sheet_names(io.BytesIO(file_bytes))
     if s_ok and len(sheets) > 1:
         selected_sheet = st.sidebar.selectbox("Select Excel Worksheet", options=sheets)
 
-raw_df, load_success, load_message, load_meta = load_dataset(active_file_source, sheet_name=selected_sheet)
+raw_df, load_success, load_message, load_meta = get_cached_dataset(file_bytes, active_filename, sheet_name=selected_sheet)
 
-if not load_success:
+if not load_success or raw_df is None:
     st.error(f"❌ File Loading Error: {load_message}")
     st.stop()
 
@@ -343,7 +455,7 @@ if col_collisions:
 auto_detected = auto_detect_columns(raw_df)
 
 with st.sidebar.expander("⚙️ Column Mapping & Settings", expanded=False):
-    st.write("Confirm or adjust column roles:")
+    st.write("**Confirm or adjust column roles:**")
     all_col_options = ["(None / Skip)"] + list(raw_df.columns)
 
     mapped_columns = {}
@@ -361,15 +473,16 @@ with st.sidebar.expander("⚙️ Column Mapping & Settings", expanded=False):
 
     st.divider()
     st.write("**Cleaning Preferences**")
-    remove_duplicates_opt = st.checkbox("Remove exact duplicate rows", value=True)
+    remove_duplicates_opt = st.checkbox("Remove exact duplicate rows", value=True, key="opt_rem_dups")
     date_format_opt = st.selectbox(
         "Date parsing format",
         options=["auto", "YYYY-MM-DD", "DD/MM/YYYY", "MM/DD/YYYY"],
-        index=0
+        index=0,
+        key="opt_date_fmt"
     )
 
 
-# ---------------- DATA CLEANING PIPELINE ----------------
+# ---------------- DATA CLEANING PIPELINE (CACHED) ----------------
 
 cleaning_options = {
     "remove_duplicates": remove_duplicates_opt,
@@ -377,7 +490,7 @@ cleaning_options = {
     "strip_whitespace": True
 }
 
-cleaned_df, cleaning_summary = clean_dataset(raw_df, mapped_columns, cleaning_options)
+cleaned_df, cleaning_summary = get_cached_cleaned_data(raw_df, mapped_columns, cleaning_options)
 
 
 # ---------------- PROFIT FORMULA VERIFICATION ----------------
@@ -385,7 +498,8 @@ cleaned_df, cleaning_summary = clean_dataset(raw_df, mapped_columns, cleaning_op
 user_confirmed_profit = st.sidebar.checkbox(
     "Acknowledge profit formula override if flagged",
     value=False,
-    help="Enable if you have confirmed that revenue and cost scales are intentional."
+    help="Enable if you have confirmed that revenue and cost scales are intentional.",
+    key="chk_profit_override"
 )
 
 profit_validation = validate_profit_formula(
@@ -405,7 +519,8 @@ profit_validation = validate_profit_formula(
 st.sidebar.divider()
 st.sidebar.subheader("🔍 Dashboard Filters")
 
-filtered_df = cleaned_df.copy()
+# Avoid full-dataframe copy on every rerun; slice on demand
+filtered_df = cleaned_df
 
 # 1. Date Range Filter
 date_col = mapped_columns.get("sale_date")
@@ -419,12 +534,15 @@ if date_col and date_col in filtered_df.columns:
                 "Filter Date Range",
                 value=(min_date, max_date),
                 min_value=min_date,
-                max_value=max_date
+                max_value=max_date,
+                key="filter_date_range_picker"
             )
             if isinstance(date_range, (tuple, list)) and len(date_range) == 2:
                 start_d, end_d = date_range
-                date_mask = filtered_df[date_col].dt.date.between(start_d, end_d)
-                filtered_df = filtered_df[date_mask]
+                # Fast path: only filter if date range is a subset
+                if start_d > min_date or end_d < max_date:
+                    date_mask = filtered_df[date_col].dt.date.between(start_d, end_d)
+                    filtered_df = filtered_df[date_mask]
 
 # 2. Categorical Filters
 filter_roles = [
@@ -439,7 +557,7 @@ filter_roles = [
 for role_key, role_name in filter_roles:
     col = mapped_columns.get(role_key)
     if col and col in filtered_df.columns:
-        unique_vals = sorted(filtered_df[col].dropna().astype(str).unique().tolist())
+        unique_vals = sorted(cleaned_df[col].dropna().astype(str).unique().tolist())
         if len(unique_vals) > 1:
             selected_vals = st.sidebar.multiselect(
                 f"Filter {role_name}",
@@ -448,12 +566,14 @@ for role_key, role_name in filter_roles:
                 key=f"filter_{role_key}"
             )
             if selected_vals:
-                filtered_df = filtered_df[filtered_df[col].astype(str).isin(selected_vals)]
+                # Fast path: only filter if subset of categories selected
+                if len(selected_vals) < len(unique_vals):
+                    filtered_df = filtered_df[filtered_df[col].astype(str).isin(selected_vals)]
             else:
                 filtered_df = filtered_df.iloc[0:0]
 
 # Display filter record count in sidebar
-st.sidebar.caption(f"Active records: {len(filtered_df):,} of {len(cleaned_df):,}")
+st.sidebar.caption(f"Active records: **{len(filtered_df):,}** of **{len(cleaned_df):,}**")
 
 
 # ---------------- EMPTY FILTER HANDLING ----------------
@@ -529,7 +649,7 @@ with tabs[0]:
 
         st.divider()
 
-        # Dashboard Visualizations
+        # Dashboard Visualizations - Row 1
         col_left, col_right = st.columns(2)
 
         # 1. Sales by Product Category
@@ -578,12 +698,12 @@ with tabs[0]:
             else:
                 st.info("Region column is not mapped. Configure mapping in sidebar to display.")
 
-        # Row 2 Visualizations
+        # Dashboard Visualizations - Row 2
         col_left2, col_right2 = st.columns(2)
 
-        # 3. Sales Representative or Sales Channel Breakdown
+        # 3. Sales Representative Performance
         with col_left2:
-            st.subheader("Sales Performance by Representative")
+            st.subheader("Sales by Representative")
             rep_col = mapped_columns.get("sales_rep")
             if rep_col and rep_col in filtered_df.columns:
                 rep_summary, err = aggregate_breakdown(filtered_df, rep_col, sales_col, agg_func="sum", top_n=8)
@@ -603,23 +723,7 @@ with tabs[0]:
                 else:
                     st.info("No sales representative data available.")
             else:
-                # Fallback to Channel if sales rep is not mapped
-                chan_col = mapped_columns.get("sales_channel")
-                if chan_col and chan_col in filtered_df.columns:
-                    st.caption("Showing Sales by Channel (Sales Rep column not mapped):")
-                    chan_summary, _ = aggregate_breakdown(filtered_df, chan_col, sales_col, agg_func="sum")
-                    if not chan_summary.empty:
-                        fig = create_bar_chart(
-                            chan_summary,
-                            cat_col=chan_col,
-                            val_col=chan_summary.columns[1],
-                            title="Sales by Channel"
-                        )
-                        if fig:
-                            st.pyplot(fig, use_container_width=True)
-                            plt.close(fig)
-                else:
-                    st.info("Neither Sales Representative nor Sales Channel column is mapped.")
+                st.info("ℹ️ Sales Representative column is not mapped. (Configure mapping in sidebar if available).")
 
         # 4. Monthly Trend Line Chart
         with col_right2:
@@ -645,6 +749,60 @@ with tabs[0]:
             else:
                 st.info("Sale Date column is not mapped. Configure mapping in sidebar to display trend.")
 
+        # Dashboard Visualizations - Row 3 (Channel & Customer/Payment Breakdowns when available)
+        chan_col = mapped_columns.get("sales_channel")
+        cust_col = mapped_columns.get("customer_type")
+        pay_col = mapped_columns.get("payment_method")
+
+        if (chan_col and chan_col in filtered_df.columns) or (cust_col and cust_col in filtered_df.columns) or (pay_col and pay_col in filtered_df.columns):
+            st.divider()
+            col_x1, col_x2 = st.columns(2)
+
+            with col_x1:
+                if chan_col and chan_col in filtered_df.columns:
+                    st.subheader("Sales by Channel")
+                    chan_summary, _ = aggregate_breakdown(filtered_df, chan_col, sales_col, agg_func="sum")
+                    if not chan_summary.empty:
+                        fig = create_bar_chart(
+                            chan_summary,
+                            cat_col=chan_col,
+                            val_col=chan_summary.columns[1],
+                            title="Sales Share by Channel"
+                        )
+                        if fig:
+                            st.pyplot(fig, use_container_width=True)
+                            plt.close(fig)
+                elif cust_col and cust_col in filtered_df.columns:
+                    st.subheader("Sales by Customer Type")
+                    cust_summary, _ = aggregate_breakdown(filtered_df, cust_col, sales_col, agg_func="sum")
+                    if not cust_summary.empty:
+                        fig = create_bar_chart(
+                            cust_summary,
+                            cat_col=cust_col,
+                            val_col=cust_summary.columns[1],
+                            title="Sales by Customer Segment"
+                        )
+                        if fig:
+                            st.pyplot(fig, use_container_width=True)
+                            plt.close(fig)
+
+            with col_x2:
+                target_col2 = pay_col if (pay_col and pay_col in filtered_df.columns) else (cust_col if (cust_col and cust_col in filtered_df.columns and chan_col) else None)
+                if target_col2 and target_col2 in filtered_df.columns:
+                    col_title = "Payment Method" if target_col2 == pay_col else "Customer Type"
+                    st.subheader(f"Sales by {col_title}")
+                    sub_summary, _ = aggregate_breakdown(filtered_df, target_col2, sales_col, agg_func="sum")
+                    if not sub_summary.empty:
+                        fig = create_pie_chart(
+                            sub_summary,
+                            cat_col=target_col2,
+                            val_col=sub_summary.columns[1],
+                            title=f"Distribution by {col_title}"
+                        )
+                        if fig:
+                            st.pyplot(fig, use_container_width=True)
+                            plt.close(fig)
+
         st.divider()
 
         # Business Highlights
@@ -659,7 +817,7 @@ with tabs[0]:
             if not cat_sum.empty:
                 h_cols[0].markdown(
                     f"""<div style="background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 10px; padding: 14px 18px; border-left: 4px solid #2563EB; box-shadow: 0 1px 3px 0 rgba(0,0,0,0.03);">
-                        <div style="color: #64748B; font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;">Top Category</div>
+                        <div style="color: #475569; font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;">Top Category</div>
                         <div style="color: #0F172A; font-size: 1.15rem; font-weight: 700; margin-top: 4px;">{cat_sum.idxmax()}</div>
                         <div style="color: #2563EB; font-size: 0.875rem; font-weight: 600; margin-top: 2px;">${cat_sum.max():,.2f} in sales</div>
                     </div>""",
@@ -671,7 +829,7 @@ with tabs[0]:
             if not reg_sum.empty:
                 h_cols[1].markdown(
                     f"""<div style="background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 10px; padding: 14px 18px; border-left: 4px solid #0EA5E9; box-shadow: 0 1px 3px 0 rgba(0,0,0,0.03);">
-                        <div style="color: #64748B; font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;">Leading Region</div>
+                        <div style="color: #475569; font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;">Leading Region</div>
                         <div style="color: #0F172A; font-size: 1.15rem; font-weight: 700; margin-top: 4px;">{reg_sum.idxmax()}</div>
                         <div style="color: #0EA5E9; font-size: 0.875rem; font-weight: 600; margin-top: 2px;">${reg_sum.max():,.2f} in sales</div>
                     </div>""",
@@ -683,16 +841,20 @@ with tabs[0]:
             if not rep_sum.empty:
                 h_cols[2].markdown(
                     f"""<div style="background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 10px; padding: 14px 18px; border-left: 4px solid #10B981; box-shadow: 0 1px 3px 0 rgba(0,0,0,0.03);">
-                        <div style="color: #64748B; font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;">Top Sales Rep</div>
+                        <div style="color: #475569; font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;">Top Sales Rep</div>
                         <div style="color: #0F172A; font-size: 1.15rem; font-weight: 700; margin-top: 4px;">{rep_sum.idxmax()}</div>
                         <div style="color: #10B981; font-size: 0.875rem; font-weight: 600; margin-top: 2px;">${rep_sum.max():,.2f} in sales</div>
                     </div>""",
                     unsafe_allow_html=True
                 )
 
-        # Filtered Records Table
-        with st.expander(f"View Active Filtered Dataset ({len(filtered_df):,} records)", expanded=False):
-            st.dataframe(filtered_df, use_container_width=True)
+        # Filtered Records Table - Preview first 1,000 rows to ensure snappy responsiveness on 3M+ row datasets
+        preview_limit = 1000
+        preview_df = filtered_df.head(preview_limit)
+        with st.expander(f"View Active Filtered Dataset ({len(filtered_df):,} total records matching filters)", expanded=False):
+            if len(filtered_df) > preview_limit:
+                st.caption(f"⚡ Showing first {preview_limit:,} records for high-speed display. Full {len(filtered_df):,} records are used in all metrics, charts, and exports.")
+            st.dataframe(preview_df, use_container_width=True)
 
 
 # ==============================================================================
@@ -702,7 +864,6 @@ with tabs[0]:
 with tabs[1]:
     st.subheader("Data Quality Audit & Cleaning Report")
 
-    # Cleanliness badge
     if cleaning_summary.get("is_completely_clean"):
         st.markdown(
             '<span class="clean-pill pill-clean">✓ Completely Clean: Zero Unresolved Issues</span>',
@@ -725,7 +886,6 @@ with tabs[1]:
 
     st.divider()
 
-    # Operations Applied & Warnings
     col_ops, col_warn = st.columns(2)
 
     with col_ops:
@@ -948,7 +1108,6 @@ with tabs[5]:
     elif not sales_col or sales_col not in cleaned_df.columns:
         st.info("Time-series analysis is unavailable: Sales Amount column is not mapped.")
     else:
-        # Check date coverage
         cov = get_date_coverage_summary(cleaned_df, date_col)
         if not cov.get("available"):
             st.warning(f"Time-series unavailable: {cov.get('reason')}")
@@ -999,40 +1158,87 @@ with tabs[5]:
 
 with tabs[6]:
     st.subheader("Export Results & Cleaned Data")
-    st.caption("Download computed results and cleaned datasets in standard CSV format.")
+    st.caption("Download computed results, audit logs, and datasets in standard CSV or Excel (.xlsx) format.")
+
+    # Unique cache tokens based on active dataset, record count, and filter state
+    clean_token = f"clean_{st.session_state.get('active_dataset_id')}_{len(cleaned_df)}"
+    filt_token = f"filt_{st.session_state.get('active_dataset_id')}_{len(filtered_df)}_{str(filtered_df.index[:1].tolist())}_{str(filtered_df.index[-1:].tolist())}"
+
+    # Check Microsoft Excel single-worksheet limit (1,048,576 rows)
+    can_excel_clean, excel_clean_reason = can_export_to_excel(cleaned_df)
+    can_excel_filt, excel_filt_reason = can_export_to_excel(filtered_df)
 
     e_col1, e_col2 = st.columns(2)
 
     with e_col1:
         st.markdown("#### 1. Cleaned Full Dataset")
         st.write(f"Contains {len(cleaned_df):,} cleaned records reflecting all preprocessing rules.")
-        clean_bytes = dataframe_to_csv_bytes(cleaned_df)
+        
+        # Deferred callable: CSV is serialized ONLY when the user clicks download
+        def export_clean_csv():
+            return get_cached_df_csv(cleaned_df, clean_token)
+
         st.download_button(
             label="📥 Download Cleaned Dataset (CSV)",
-            data=clean_bytes,
+            data=export_clean_csv,
             file_name="cleaned_sales_dataset.csv",
             mime="text/csv",
             key="btn_download_clean"
         )
 
+        if can_excel_clean:
+            def export_clean_excel():
+                return get_cached_df_excel(cleaned_df, clean_token)
+
+            st.download_button(
+                label="📊 Download Cleaned Dataset (Excel .xlsx)",
+                data=export_clean_excel,
+                file_name="cleaned_sales_dataset.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="btn_download_clean_excel"
+            )
+        else:
+            st.caption(f"ℹ️ **Excel export unavailable:** {excel_clean_reason}")
+
         st.markdown("#### 2. Active Filtered Records")
         st.write(f"Contains {len(filtered_df):,} records currently matching your active filters.")
-        filt_bytes = dataframe_to_csv_bytes(filtered_df)
+
+        # Deferred callable: Filtered CSV serialized ONLY when the user clicks download
+        def export_filtered_csv():
+            return get_cached_df_csv(filtered_df, filt_token)
+
         st.download_button(
             label="📥 Download Filtered Dataset (CSV)",
-            data=filt_bytes,
+            data=export_filtered_csv,
             file_name="filtered_sales_dataset.csv",
             mime="text/csv",
             key="btn_download_filtered"
         )
 
+        if can_excel_filt:
+            def export_filtered_excel():
+                return get_cached_df_excel(filtered_df, filt_token)
+
+            st.download_button(
+                label="📊 Download Filtered Dataset (Excel .xlsx)",
+                data=export_filtered_excel,
+                file_name="filtered_sales_dataset.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="btn_download_filt_excel"
+            )
+        else:
+            st.caption(f"ℹ️ **Excel export unavailable:** {excel_filt_reason}")
+
     with e_col2:
         st.markdown("#### 3. Data Quality & Cleaning Audit")
         st.write("Structured audit log of missing cells, duplicates, conversions, and warnings.")
-        audit_bytes = generate_quality_report_csv(cleaning_summary)
+
+        def export_audit_csv():
+            return generate_quality_report_csv(cleaning_summary)
+
         st.download_button(
             label="📥 Download Quality Audit Report (CSV)",
-            data=audit_bytes,
+            data=export_audit_csv,
             file_name="data_quality_report.csv",
             mime="text/csv",
             key="btn_download_audit"
@@ -1042,15 +1248,20 @@ with tabs[6]:
         st.write("Table of mean, median, standard deviation, quartiles, and min/max metrics.")
         all_numeric = [col for col in cleaned_df.columns if pd.api.types.is_numeric_dtype(cleaned_df[col])]
         if all_numeric:
-            stats_df = calculate_descriptive_statistics(cleaned_df, all_numeric)
-            stats_bytes = dataframe_to_csv_bytes(stats_df)
+            # Deferred callable: Statistics calculated and serialized ONLY when clicked
+            def export_stats_csv():
+                stats_df = calculate_descriptive_statistics(cleaned_df, all_numeric)
+                return dataframe_to_csv_bytes(stats_df)
+
             st.download_button(
                 label="📥 Download Descriptive Statistics (CSV)",
-                data=stats_bytes,
+                data=export_stats_csv,
                 file_name="descriptive_statistics.csv",
                 mime="text/csv",
                 key="btn_download_stats"
             )
+        else:
+            st.info("No numeric columns available for statistical summary export.")
 
 
 # ---------------- FOOTER ----------------

@@ -60,7 +60,7 @@ def aggregate_time_series(
         meta["message"] = "No valid records with both a recognizable date and numeric measure exist."
         return pd.DataFrame(), meta
 
-    # Group by selected frequency
+    # Group by selected frequency using vectorized PeriodIndex
     freq_map = {
         "Day": "D",
         "Month": "M",
@@ -68,19 +68,17 @@ def aggregate_time_series(
     }
     freq_code = freq_map.get(frequency, "M")
 
-    # Format period label
-    if freq_code == "D":
-        valid_df["Period_Key"] = valid_df[date_col].dt.date
-        valid_df["Period"] = valid_df[date_col].dt.strftime("%Y-%m-%d")
-    elif freq_code == "M":
-        valid_df["Period_Key"] = valid_df[date_col].dt.to_period("M").dt.to_timestamp()
-        valid_df["Period"] = valid_df[date_col].dt.strftime("%b %Y")
-    else: # Year
-        valid_df["Period_Key"] = valid_df[date_col].dt.to_period("Y").dt.to_timestamp()
-        valid_df["Period"] = valid_df[date_col].dt.strftime("%Y")
+    # Group by Period first (fast vectorized integer arithmetic), then format resulting aggregate labels
+    period_series = valid_df[date_col].dt.to_period(freq_code)
+    grouped = valid_df.groupby(period_series, as_index=False)[value_col].agg(agg_func)
+    grouped = grouped.sort_values(by=date_col).reset_index(drop=True)
 
-    grouped = valid_df.groupby(["Period_Key", "Period"], as_index=False)[value_col].agg(agg_func)
-    grouped = grouped.sort_values(by="Period_Key").reset_index(drop=True)
+    if freq_code == "D":
+        grouped["Period"] = grouped[date_col].dt.strftime("%Y-%m-%d")
+    elif freq_code == "M":
+        grouped["Period"] = grouped[date_col].dt.strftime("%b %Y")
+    else:  # Year
+        grouped["Period"] = grouped[date_col].dt.strftime("%Y")
 
     result_df = grouped[["Period", value_col]].copy()
     result_df.columns = ["Period", f"{value_col} ({agg_func.upper()})"]

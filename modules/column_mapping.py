@@ -9,61 +9,69 @@ from typing import Dict, List, Optional, Tuple
 import pandas as pd
 
 
-# Canonical role definitions and synonyms
+# Comprehensive canonical role definitions and synonyms
 ROLE_SYNONYMS = {
     "sales_amount": [
         "sales_amount", "sales", "revenue", "amount", "total_amount",
         "salesamount", "net_sales", "turnover", "total_sales",
-        "order_amount", "total_price", "sale_amount", "grand_total"
+        "order_amount", "total_price", "sale_amount", "grand_total",
+        "total_revenue", "sales_value", "sale_value", "total"
     ],
     "sale_date": [
         "sale_date", "date", "transaction_date", "order_date",
         "invoice_date", "timestamp", "sales_date", "datetime",
-        "order_dt", "sold_date"
+        "order_dt", "sold_date", "trans_date", "time", "date_time"
     ],
     "quantity_sold": [
         "quantity_sold", "quantity", "qty", "units_sold", "units",
-        "volume", "qty_sold", "item_count", "pieces", "count"
+        "volume", "qty_sold", "item_count", "pieces", "count",
+        "num_items", "quantity_ordered", "items_sold"
     ],
     "product_category": [
         "product_category", "category", "item_category", "product_type",
-        "department", "prod_category", "product_line", "product_group", "genre"
+        "department", "prod_category", "product_line", "product_group",
+        "genre", "category_name", "item_type", "dept", "product_dept"
     ],
     "region": [
         "region", "territory", "zone", "area", "location", "state",
-        "province", "country", "market", "district", "city"
+        "province", "country", "market", "district", "city", "region_name"
     ],
     "sales_rep": [
-        "sales_rep", "rep", "salesperson", "sales_person", "agent",
-        "employee", "salesman", "seller", "sales_agent", "rep_name"
+        "sales_rep", "salesrep", "rep", "salesperson", "sales_person",
+        "agent", "sales_agent", "employee", "salesman", "seller",
+        "representative", "sales_representative", "rep_name",
+        "sales_member", "staff", "agent_name"
     ],
     "sales_channel": [
         "sales_channel", "channel", "source", "platform",
-        "distribution_channel", "order_channel", "sales_source"
+        "distribution_channel", "order_channel", "sales_source",
+        "channel_name", "channel_type", "sales_mode", "channel_id"
     ],
     "customer_type": [
         "customer_type", "client_type", "segment", "customer_segment",
-        "cust_type", "membership_type", "buyer_type"
+        "cust_type", "membership_type", "buyer_type", "customer_group",
+        "account_type", "user_type", "client_segment"
     ],
     "payment_method": [
         "payment_method", "payment_type", "payment_mode", "tender_type",
-        "pay_type", "payment", "mode_of_payment"
+        "pay_type", "payment", "mode_of_payment", "payment_instrument",
+        "pay_method", "transaction_type"
     ],
     "unit_cost": [
         "unit_cost", "cost_per_unit", "cost", "item_cost",
-        "buying_price", "purchase_cost", "cogs_per_unit"
+        "buying_price", "purchase_cost", "cogs_per_unit", "product_cost"
     ],
     "unit_price": [
         "unit_price", "price_per_unit", "price", "selling_price",
-        "rate", "item_price", "mrp"
+        "rate", "item_price", "mrp", "list_price", "retail_price"
     ],
     "discount": [
         "discount", "discount_rate", "disc", "discount_amount",
-        "rebate", "discount_pct", "discount_percentage"
+        "rebate", "discount_pct", "discount_percentage", "discount_value"
     ],
     "profit": [
         "profit", "net_profit", "gross_profit", "margin",
-        "operating_profit", "net_margin"
+        "operating_profit", "net_margin", "earnings"
     ]
 }
 
@@ -155,7 +163,7 @@ def auto_detect_columns(df: pd.DataFrame) -> Dict[str, Optional[str]]:
             if detected[role]:
                 break
 
-    # Pass 2: Substring matches for unassigned roles
+    # Pass 2: Component & Substring matches for unassigned roles
     for role, synonyms in ROLE_SYNONYMS.items():
         if detected[role] is not None:
             continue
@@ -164,7 +172,12 @@ def auto_detect_columns(df: pd.DataFrame) -> Dict[str, Optional[str]]:
             for orig_col, clean_col in normalized_cols.items():
                 if orig_col not in used_columns:
                     # Match if clean_syn is a distinct component in column name
-                    if f"_{clean_syn}_" in f"_{clean_col}_" or clean_col.startswith(clean_syn) or clean_col.endswith(clean_syn):
+                    if (
+                        f"_{clean_syn}_" in f"_{clean_col}_"
+                        or clean_col.startswith(f"{clean_syn}_")
+                        or clean_col.endswith(f"_{clean_syn}")
+                        or clean_col == clean_syn
+                    ):
                         detected[role] = orig_col
                         used_columns.add(orig_col)
                         break

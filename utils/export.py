@@ -1,22 +1,58 @@
 """
 Export and download utilities for Sales Data Analysis System.
-Provides formatting and conversion of DataFrames and analysis summaries to CSV bytes.
+Provides formatting and conversion of DataFrames and analysis summaries to CSV and Excel bytes.
 """
 
 import io
-from typing import Dict, Any
+from typing import Dict, Any, Tuple
 import pandas as pd
 
+EXCEL_MAX_WORKSHEET_ROWS = 1_048_576
 
-def dataframe_to_csv_bytes(df: pd.DataFrame, index: bool = False) -> bytes:
+
+def dataframe_to_csv_bytes(df: pd.DataFrame, index: bool = False, chunksize: int = 100_000) -> bytes:
     """
-    Converts a pandas DataFrame to UTF-8 encoded CSV bytes.
+    Converts a pandas DataFrame to UTF-8 encoded CSV bytes efficiently.
+    Uses direct binary streaming via BytesIO with chunking to avoid large intermediate
+    Python string copies in memory.
     """
     if df is None or df.empty:
         return b""
-    output = io.StringIO()
-    df.to_csv(output, index=index, encoding="utf-8")
-    return output.getvalue().encode("utf-8")
+    buf = io.BytesIO()
+    df.to_csv(buf, index=index, encoding="utf-8", chunksize=chunksize)
+    return buf.getvalue()
+
+
+def can_export_to_excel(df: pd.DataFrame) -> Tuple[bool, str]:
+    """
+    Validates whether a DataFrame can be exported into a single Excel worksheet
+    without exceeding Microsoft Excel's hard limit of 1,048,576 rows (1 header + 1,048,575 data rows).
+    """
+    if df is None or df.empty:
+        return True, ""
+    row_count = len(df)
+    if row_count > EXCEL_MAX_WORKSHEET_ROWS - 1:
+        return False, (
+            f"Dataset contains {row_count:,} rows, exceeding Excel's single-worksheet limit of "
+            f"1,048,576 rows. Please use CSV export for complete, un-truncated data."
+        )
+    return True, ""
+
+
+def dataframe_to_excel_bytes(df: pd.DataFrame, sheet_name: str = "Sales_Data") -> bytes:
+    """
+    Converts a pandas DataFrame to Excel (.xlsx) bytes using OpenPyXL.
+    Strictly enforces Excel's 1,048,576 row ceiling to prevent corrupted workbooks.
+    """
+    if df is None or df.empty:
+        return b""
+    can_export, reason = can_export_to_excel(df)
+    if not can_export:
+        raise ValueError(reason)
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        df.to_excel(writer, sheet_name=sheet_name[:31], index=False)
+    return buf.getvalue()
 
 
 def generate_quality_report_csv(summary: Dict[str, Any]) -> bytes:
